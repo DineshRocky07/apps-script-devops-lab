@@ -21,7 +21,7 @@ function doGet() {
 /**
  * Utility used by Index.html if it ever needs to inline another HTML
  * partial. Not required for the current single-file build, kept for
- * extensibility. gg
+ * extensibility. ggdgs
  */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
