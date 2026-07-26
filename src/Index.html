@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flame Match Analyzer</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<style>
+/* ==========================================================================
+   DESIGN TOKENS
+   Fire + Love fusion palette: near-black void, ember gradient (orange -> hot
+   pink -> violet), used sparingly against quiet glass surfaces.
+   ========================================================================== */
+:root{
+  --void:#08070b;
+  --surface:#100e15;
+  --surface-2:#17141c;
+  --glass: rgba(255,255,255,.055);
+  --glass-strong: rgba(255,255,255,.09);
+  --glass-border: rgba(255,255,255,.10);
+  --glass-border-strong: rgba(255,255,255,.18);
+
+  --ember-1:#ff7a3d;
+  --ember-2:#ff3d68;
+  --ember-3:#9b5cf6;
+  --flame-gradient: linear-gradient(135deg, var(--ember-1) 0%, var(--ember-2) 55%, var(--ember-3) 100%);
+  --flame-gradient-soft: linear-gradient(135deg, rgba(255,122,61,.22) 0%, rgba(255,61,104,.22) 55%, rgba(155,92,246,.22) 100%);
+
+  --text-1:#f4f1ee;
+  --text-2:#a6a1af;
+  --text-3:#6d6877;
+
+  --good:#4ade80;
+  --warn:#facc15;
+  --bad:#fb7185;
+
+  --radius-lg: 28px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+
+  --font-display:'Space Grotesk', 'Inter', sans-serif;
+  --font-body:'Inter', sans-serif;
+  --font-mono:'JetBrains Mono', monospace;
+
+  --ease: cubic-bezier(.16,.84,.32,1);
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; }
+body{
+  font-family: var(--font-body);
+  background: var(--void);
+  color: var(--text-1);
+  overflow-x:hidden;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+}
+
+/* ---------- ambient background ---------- */
+.bg-void{ position:fixed; inset:0; z-index:0; overflow:hidden; }
+.bg-void::before, .bg-void::after{
+  content:''; position:absolute; border-radius:50%; filter:blur(110px); opacity:.35;
+}
+.bg-void::before{
+  width:640px; height:640px; top:-220px; left:-160px;
+  background: radial-gradient(circle at 30% 30%, var(--ember-2), transparent 70%);
+  animation: drift1 22s ease-in-out infinite;
+}
+.bg-void::after{
+  width:560px; height:560px; bottom:-200px; right:-140px;
+  background: radial-gradient(circle at 60% 60%, var(--ember-3), transparent 70%);
+  animation: drift2 26s ease-in-out infinite;
+}
+.bg-grain{ position:fixed; inset:0; z-index:1; pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
+@keyframes drift1{ 0%,100%{ transform:translate(0,0) scale(1);} 50%{ transform:translate(60px,40px) scale(1.08);} }
+@keyframes drift2{ 0%,100%{ transform:translate(0,0) scale(1);} 50%{ transform:translate(-50px,-30px) scale(1.1);} }
+
+/* ---------- layout shell ---------- */
+.app{
+  position:relative; z-index:2;
+  min-height:100vh;
+  display:flex; align-items:center; justify-content:center;
+  padding: 32px 20px 60px;
+}
+.view{ width:100%; max-width:1180px; }
+.hidden{ display:none !important; }
+
+/* ---------- glass primitives ---------- */
+.glass{
+  background: var(--glass);
+  border:1px solid var(--glass-border);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-radius: var(--radius-lg);
+}
+.glass-card{
+  background: var(--glass);
+  border:1px solid var(--glass-border);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border-radius: var(--radius-md);
+  transition: transform .35s var(--ease), border-color .35s var(--ease), background .35s var(--ease);
+}
+.glass-card:hover{
+  transform: translateY(-4px);
+  border-color: var(--glass-border-strong);
+  background: var(--glass-strong);
+}
+
+/* ==========================================================================
+   HOME VIEW
+   ========================================================================== */
+#home-view .home-card{
+  max-width:560px; margin:0 auto;
+  padding: 56px 44px 48px;
+  text-align:center;
+  animation: rise .7s var(--ease);
+}
+@keyframes rise{ from{ opacity:0; transform:translateY(24px);} to{ opacity:1; transform:translateY(0);} }
+
+.app-title{
+  font-family:var(--font-display);
+  font-size: clamp(28px, 4.4vw, 40px);
+  font-weight:700;
+  letter-spacing:-0.02em;
+  background: var(--flame-gradient);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  display:inline-flex; align-items:center; gap:12px;
+}
+.app-title .flame-icon{ display:inline-block; animation: flicker 2.4s ease-in-out infinite; filter:none; -webkit-text-fill-color:initial; }
+@keyframes flicker{
+  0%,100%{ transform:scale(1) rotate(0deg); }
+  25%{ transform:scale(1.08) rotate(-3deg); }
+  50%{ transform:scale(0.96) rotate(2deg); }
+  75%{ transform:scale(1.05) rotate(-1deg); }
+}
+.app-subtitle{
+  margin-top:10px; color:var(--text-2); font-size:15px; letter-spacing:.02em;
+}
+
+.input-group{ margin-top:36px; text-align:left; }
+.field{ position:relative; margin-bottom:18px; }
+.field input{
+  width:100%; padding:18px 18px 18px 50px;
+  background: rgba(255,255,255,.04);
+  border:1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color:var(--text-1);
+  font-family:var(--font-body); font-size:16px;
+  outline:none;
+  transition: border-color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease);
+}
+.field input::placeholder{ color: var(--text-3); }
+.field input:focus{
+  border-color: var(--ember-2);
+  background: rgba(255,61,104,.06);
+  box-shadow: 0 0 0 4px rgba(255,61,104,.12);
+}
+.field .field-icon{
+  position:absolute; left:18px; top:50%; transform:translateY(-50%);
+  font-size:18px; opacity:.75; pointer-events:none;
+}
+.field .field-label{
+  position:absolute; left:50px; top:50%; transform:translateY(-50%);
+  color:var(--text-3); font-size:15px; pointer-events:none;
+  transition: all .2s var(--ease);
+}
+.field input:focus + .field-label,
+.field input:not(:placeholder-shown) + .field-label{
+  top:0; left:14px; font-size:11px; padding:0 6px;
+  background: var(--surface); color:var(--ember-1);
+  border-radius:6px;
+}
+
+.start-btn{
+  position:relative; overflow:hidden; isolation:isolate;
+  margin-top:14px; width:100%;
+  padding:19px 24px;
+  border:none; border-radius: var(--radius-sm);
+  background: var(--flame-gradient);
+  background-size:200% 200%;
+  color:#0a0509; font-family:var(--font-display); font-weight:700; font-size:17px;
+  letter-spacing:.01em;
+  cursor:pointer;
+  box-shadow: 0 14px 34px -12px rgba(255,61,104,.55);
+  transition: transform .25s var(--ease), box-shadow .25s var(--ease), background-position .8s ease;
+}
+.start-btn:hover{ transform: translateY(-2px); background-position:100% 50%; box-shadow: 0 18px 40px -10px rgba(255,61,104,.65); }
+.start-btn:active{ transform: translateY(0px) scale(.99); }
+.start-btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+.ripple{
+  position:absolute; border-radius:50%; background: rgba(255,255,255,.55);
+  transform: scale(0); animation: ripple .6s ease-out; pointer-events:none; z-index:0;
+}
+@keyframes ripple{ to{ transform: scale(3.2); opacity:0; } }
+.start-btn span{ position:relative; z-index:1; }
+
+.error-msg{
+  margin-top:12px; font-size:13px; color: var(--bad); min-height:16px;
+}
+
+/* ==========================================================================
+   LOADING VIEW
+   ========================================================================== */
+#loading-view{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  min-height:60vh; position:relative;
+}
+.particle-field{ position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+.particle{
+  position:absolute; bottom:-10%; font-size: 22px; opacity:0;
+  animation: floatUp linear forwards;
+  will-change: transform, opacity;
+}
+@keyframes floatUp{
+  0%{ opacity:0; transform: translateY(0) translateX(0) rotate(0deg) scale(.6); }
+  10%{ opacity:.9; }
+  85%{ opacity:.7; }
+  100%{ opacity:0; transform: translateY(-115vh) translateX(var(--drift,0px)) rotate(360deg) scale(1); }
+}
+
+.loading-ring-wrap{ position:relative; z-index:1; width:230px; height:230px; }
+.loading-ring-wrap svg{ width:100%; height:100%; transform:rotate(-90deg); }
+.ring-track{ fill:none; stroke: rgba(255,255,255,.08); stroke-width:10; }
+.ring-progress{
+  fill:none; stroke-width:10; stroke-linecap:round;
+  stroke: url(#flameStroke);
+  filter: drop-shadow(0 0 10px rgba(255,61,104,.55));
+  transition: stroke-dashoffset .12s linear;
+}
+.ring-percent{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family: var(--font-mono); font-weight:700; font-size:38px;
+  background: var(--flame-gradient); -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+
+.loading-text{
+  position:relative; z-index:1; margin-top:34px;
+  font-family:var(--font-display); font-size:17px; color:var(--text-2);
+  min-height:26px; letter-spacing:.01em;
+}
+.loading-text .cursor{ display:inline-block; width:2px; height:16px; background:var(--ember-2); margin-left:3px; vertical-align:middle; animation: blink 1s step-end infinite; }
+@keyframes blink{ 50%{ opacity:0; } }
+
+/* ==========================================================================
+   RESULTS VIEW
+   ========================================================================== */
+#results-view{ animation: rise .6s var(--ease); }
+
+.result-header{ text-align:center; padding: 6px 12px 34px; }
+.matchup-row{
+  display:flex; align-items:center; justify-content:center; gap:22px;
+  flex-wrap:wrap;
+}
+.person-chip{
+  font-family:var(--font-display); font-weight:600; font-size: clamp(18px,3vw,26px);
+  padding:12px 22px; border-radius:999px;
+  background: var(--glass); border:1px solid var(--glass-border);
+}
+.matchup-heart{ font-size:28px; animation: pulseHeart 1.4s ease-in-out infinite; }
+@keyframes pulseHeart{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.22);} }
+
+.result-badge{
+  margin-top:22px; display:inline-flex; align-items:center; gap:10px;
+  font-family:var(--font-display); font-weight:700; font-size: clamp(20px,3.4vw,28px);
+  padding:14px 30px; border-radius:999px;
+  background: var(--flame-gradient-soft);
+  border:1px solid var(--glass-border-strong);
+}
+
+/* signature centerpiece: the flame compatibility ring */
+.centerpiece{
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  padding: 30px 20px 42px;
+}
+.gauge-wrap{ position:relative; width:260px; height:260px; }
+.gauge-wrap svg{ width:100%; height:100%; transform:rotate(-90deg); }
+.gauge-track{ fill:none; stroke: rgba(255,255,255,.07); stroke-width:14; }
+.gauge-progress{
+  fill:none; stroke-width:14; stroke-linecap:round;
+  stroke: url(#flameStroke2);
+  filter: drop-shadow(0 0 14px rgba(255,61,104,.5));
+  transition: stroke-dashoffset 1.6s var(--ease);
+}
+.gauge-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.gauge-label{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-3); }
+.gauge-value{ font-family:var(--font-mono); font-weight:700; font-size:52px; line-height:1.1;
+  background: var(--flame-gradient); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+/* dashboard grid */
+.section-heading{
+  font-family:var(--font-display); font-weight:600; font-size:14px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--text-3);
+  margin: 8px 4px 16px;
+}
+.dashboard-grid{
+  display:grid; grid-template-columns: repeat(3, 1fr); gap:16px;
+  margin-bottom:40px;
+}
+@media (max-width:820px){ .dashboard-grid{ grid-template-columns: repeat(2,1fr); } }
+@media (max-width:520px){ .dashboard-grid{ grid-template-columns: 1fr; } }
+
+.stat-card{ padding:22px; }
+.stat-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.stat-icon{ font-size:22px; }
+.stat-name{ font-size:13px; color:var(--text-2); font-weight:600; }
+.stat-value{ font-family:var(--font-mono); font-weight:700; font-size:30px; margin-bottom:10px; }
+.stat-bar{ height:8px; border-radius:999px; background: rgba(255,255,255,.07); overflow:hidden; }
+.stat-bar-fill{ height:100%; border-radius:999px; width:0%; background: var(--flame-gradient); transition: width 1.4s var(--ease); }
+
+/* charts grid */
+.charts-grid{
+  display:grid; grid-template-columns: repeat(2, 1fr); gap:16px;
+  margin-bottom: 40px;
+}
+@media (max-width:820px){ .charts-grid{ grid-template-columns: 1fr; } }
+.chart-card{ padding:22px; }
+.chart-card h4{ font-family:var(--font-display); font-size:14px; color:var(--text-2); font-weight:600; margin-bottom:14px; }
+.chart-card canvas{ max-height:260px; }
+
+/* timeline */
+.timeline-card{ padding:32px 26px; margin-bottom:40px; }
+.timeline{ display:flex; justify-content:space-between; position:relative; gap:8px; flex-wrap:wrap; }
+.timeline::before{
+  content:''; position:absolute; top:26px; left:4%; right:4%; height:2px;
+  background: linear-gradient(90deg, transparent, var(--glass-border-strong) 10%, var(--glass-border-strong) 90%, transparent);
+  z-index:0;
+}
+.timeline-step{
+  position:relative; z-index:1; flex:1; min-width:90px;
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  opacity:0; transform:translateY(14px);
+  transition: opacity .5s var(--ease), transform .5s var(--ease);
+}
+.timeline-step.show{ opacity:1; transform:translateY(0); }
+.timeline-icon{
+  width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:22px; background: var(--surface-2); border:1px solid var(--glass-border-strong);
+  margin-bottom:10px; box-shadow: 0 0 0 6px rgba(255,61,104,.05);
+}
+.timeline-step.show .timeline-icon{ background: var(--flame-gradient); box-shadow: 0 8px 20px -8px rgba(255,61,104,.6); }
+.timeline-name{ font-size:12px; color:var(--text-2); font-weight:600; }
+
+/* actions */
+.actions-row{ display:flex; justify-content:center; gap:14px; flex-wrap:wrap; padding-bottom:20px; }
+.btn-secondary{
+  padding:14px 26px; border-radius: var(--radius-sm);
+  background: var(--glass); border:1px solid var(--glass-border-strong);
+  color:var(--text-1); font-family:var(--font-display); font-weight:600; font-size:14px;
+  cursor:pointer; transition: transform .25s var(--ease), background .25s var(--ease);
+}
+.btn-secondary:hover{ transform:translateY(-2px); background: var(--glass-strong); }
+
+/* confetti + hearts overlay */
+#fx-canvas{ position:fixed; inset:0; z-index:50; pointer-events:none; }
+
+.svg-defs{ position:absolute; width:0; height:0; }
+
+::-webkit-scrollbar{ width:10px; }
+::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.12); border-radius:999px; }
+</style>
+</head>
+<body>
+
+<div class="bg-void"></div>
+<div class="bg-grain"></div>
+<canvas id="fx-canvas"></canvas>
+
+<!-- shared gradient defs for ring strokes -->
+<svg class="svg-defs">
+  <defs>
+    <linearGradient id="flameStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7a3d"/>
+      <stop offset="55%" stop-color="#ff3d68"/>
+      <stop offset="100%" stop-color="#9b5cf6"/>
+    </linearGradient>
+    <linearGradient id="flameStroke2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7a3d"/>
+      <stop offset="55%" stop-color="#ff3d68"/>
+      <stop offset="100%" stop-color="#9b5cf6"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="app">
+
+  <!-- ============================= HOME VIEW ============================= -->
+  <section id="home-view" class="view">
+    <div class="glass home-card">
+      <h1 class="app-title"><span class="flame-icon">🔥</span> Flame Match Analyzer</h1>
+      <p class="app-subtitle">Real FLAMES logic. Zero guesswork. Find out what you really are.</p>
+
+      <div class="input-group">
+        <div class="field">
+          <span class="field-icon">👤</span>
+          <input id="name1" type="text" placeholder=" " autocomplete="off" maxlength="40">
+          <label class="field-label" for="name1">Person 1 Name</label>
+        </div>
+        <div class="field">
+          <span class="field-icon">👤</span>
+          <input id="name2" type="text" placeholder=" " autocomplete="off" maxlength="40">
+          <label class="field-label" for="name2">Person 2 Name</label>
+        </div>
+      </div>
+
+      <button id="start-btn" class="start-btn"><span>✨ Start Analysis</span></button>
+      <div id="error-msg" class="error-msg"></div>
+    </div>
+  </section>
+
+  <!-- ============================ LOADING VIEW ============================ -->
+  <section id="loading-view" class="view hidden">
+    <div class="particle-field" id="particle-field"></div>
+    <div class="loading-ring-wrap">
+      <svg viewBox="0 0 220 220">
+        <circle class="ring-track" cx="110" cy="110" r="95"></circle>
+        <circle id="loading-ring-progress" class="ring-progress" cx="110" cy="110" r="95"></circle>
+      </svg>
+      <div class="ring-percent" id="loading-percent">0%</div>
+    </div>
+    <div class="loading-text" id="loading-text">Analyzing personalities...<span class="cursor"></span></div>
+  </section>
+
+  <!-- ============================ RESULTS VIEW ============================ -->
+  <section id="results-view" class="view hidden">
+
+    <div class="result-header">
+      <div class="matchup-row">
+        <span class="person-chip" id="res-name1">—</span>
+        <span class="matchup-heart">❤️</span>
+        <span class="person-chip" id="res-name2">—</span>
+      </div>
+      <div class="result-badge" id="res-badge">Result</div>
+    </div>
+
+    <div class="centerpiece">
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 220 220">
+          <circle class="gauge-track" cx="110" cy="110" r="95"></circle>
+          <circle id="gauge-progress" class="gauge-progress" cx="110" cy="110" r="95"></circle>
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-label">Compatibility</div>
+          <div class="gauge-value" id="gauge-value">0%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-heading">Relationship Dashboard</div>
+    <div class="dashboard-grid" id="dashboard-grid"></div>
+
+    <div class="section-heading">Compatibility Breakdown</div>
+    <div class="charts-grid">
+      <div class="glass-card chart-card"><h4>Trait Radar</h4><canvas id="chart-radar"></canvas></div>
+      <div class="glass-card chart-card"><h4>Score Composition</h4><canvas id="chart-doughnut"></canvas></div>
+      <div class="glass-card chart-card"><h4>Overall Rating</h4><canvas id="chart-progressring"></canvas></div>
+      <div class="glass-card chart-card"><h4>Metric Comparison</h4><canvas id="chart-bar"></canvas></div>
+    </div>
+
+    <div class="section-heading">Relationship Journey</div>
+    <div class="glass-card timeline-card">
+      <div class="timeline" id="timeline"></div>
+    </div>
+
+    <div class="actions-row">
+      <button class="btn-secondary" id="restart-btn">🔁 Analyze Again</button>
+      <button class="btn-secondary" id="share-btn">📋 Copy Result</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ============================================================================
+ * FLAME MATCH ANALYZER — client script
+ * Handles: view transitions, loading animation/particles, calling the
+ * Apps Script backend for the real FLAMES computation, and rendering the
+ * results dashboard + Chart.js visuals + timeline + confetti.
+ * ==========================================================================*/
+
+/* ---------------------------------------------------------------------------
+ * 0. Client-side mirror of the FLAMES algorithm.
+ *    Used as a fallback when google.script.run is unavailable (e.g. when
+ *    previewing this file outside of a deployed Apps Script web app), and
+ *    to keep the UI logic self-contained. The deployed app calls the real
+ *    Code.gs backend via google.script.run first and only falls back here
+ *    on failure.
+ * -------------------------------------------------------------------------*/
+const FLAMES_TABLE = [
+  { letter:'F', word:'Friends',   emoji:'🤝' },
+  { letter:'L', word:'Love',      emoji:'❤️' },
+  { letter:'A', word:'Affection', emoji:'🥰' },
+  { letter:'M', word:'Marriage',  emoji:'💍' },
+  { letter:'E', word:'Enemy',     emoji:'⚔️' },
+  { letter:'S', word:'Siblings',  emoji:'👨‍👩‍👧' }
+];
+const RESULT_BASELINES = {
+  Friends:   { compatibility:58, passion:30, friendship:88, marriage:25, communication:62 },
+  Love:      { compatibility:82, passion:85, friendship:70, marriage:68, communication:74 },
+  Affection: { compatibility:70, passion:60, friendship:75, marriage:50, communication:68 },
+  Marriage:  { compatibility:88, passion:72, friendship:74, marriage:92, communication:80 },
+  Enemy:     { compatibility:22, passion:20, friendship:15, marriage:8,  communication:25 },
+  Siblings:  { compatibility:60, passion:15, friendship:82, marriage:12, communication:70 }
+};
+function normalizeToLetters(name){ return String(name).toLowerCase().replace(/[^a-z]/g,'').split(''); }
+function computeFlamesLocal(name1, name2){
+  const a = normalizeToLetters(name1), b = normalizeToLetters(name2);
+  for (let i=0;i<a.length;i++){
+    const idx = b.indexOf(a[i]);
+    if (idx !== -1){ a.splice(i,1); b.splice(idx,1); i--; }
+  }
+  let remainingCount = a.length + b.length;
+  if (remainingCount === 0) remainingCount = normalizeToLetters(name1).length + normalizeToLetters(name2).length;
+  let pool = FLAMES_TABLE.slice(), pointer = 0;
+  while (pool.length > 1){
+    pointer = (pointer + remainingCount - 1) % pool.length;
+    pool.splice(pointer, 1);
+    if (pointer >= pool.length) pointer = 0;
+  }
+  const winner = pool[0];
+  return { remainingCount, result:winner.word, emoji:winner.emoji, label: winner.word+' '+winner.emoji };
+}
+function hashNamesLocal(name1, name2){
+  const str = (name1+'::'+name2).toLowerCase();
+  let h = 2166136261;
+  for (let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(seed){
+  let state = seed;
+  return function(){
+    state |= 0; state = (state + 0x6D2B79F5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+function computeMetricsLocal(flames, seed){
+  const rand = mulberry32(seed);
+  const base = RESULT_BASELINES[flames.result];
+  function nudge(baseline, spread){ return clamp(baseline + Math.round((rand()*2-1)*spread), 0, 100); }
+  const compatibility = nudge(base.compatibility, 10);
+  const passion = nudge(base.passion, 14);
+  const friendship = nudge(base.friendship, 12);
+  const marriageChance = nudge(base.marriage, 12);
+  const communication = nudge(base.communication, 12);
+  const overall = Math.round((compatibility+passion+friendship+marriageChance+communication)/5);
+  return { compatibility, passion, friendship, marriageChance, communication, overall };
+}
+function getAnalysisLocal(name1, name2){
+  const flames = computeFlamesLocal(name1, name2);
+  const seed = hashNamesLocal(name1, name2);
+  const metrics = computeMetricsLocal(flames, seed);
+  return {
+    name1, name2,
+    remainingCount: flames.remainingCount,
+    result: flames.result, resultEmoji: flames.emoji, resultLabel: flames.label,
+    metrics
+  };
+}
+function runAnalysis(name1, name2){
+  return new Promise((resolve, reject) => {
+    if (typeof google !== 'undefined' && google.script && google.script.run){
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(() => resolve(getAnalysisLocal(name1, name2)))
+        .getAnalysis(name1, name2);
+    } else {
+      resolve(getAnalysisLocal(name1, name2));
+    }
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * 1. DOM references
+ * -------------------------------------------------------------------------*/
+const homeView = document.getElementById('home-view');
+const loadingView = document.getElementById('loading-view');
+const resultsView = document.getElementById('results-view');
+const startBtn = document.getElementById('start-btn');
+const name1Input = document.getElementById('name1');
+const name2Input = document.getElementById('name2');
+const errorMsg = document.getElementById('error-msg');
+
+/* ---------------------------------------------------------------------------
+ * 2. Button ripple effect
+ * -------------------------------------------------------------------------*/
+startBtn.addEventListener('click', function(e){
+  const rect = startBtn.getBoundingClientRect();
+  const ripple = document.createElement('span');
+  ripple.className = 'ripple';
+  const size = Math.max(rect.width, rect.height);
+  ripple.style.width = ripple.style.height = size + 'px';
+  ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+  ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+  startBtn.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 650);
+});
+
+/* ---------------------------------------------------------------------------
+ * 3. Start Analysis flow
+ * -------------------------------------------------------------------------*/
+startBtn.addEventListener('click', async function(){
+  const n1 = name1Input.value.trim();
+  const n2 = name2Input.value.trim();
+  errorMsg.textContent = '';
+
+  if (!n1 || !n2){
+    errorMsg.textContent = 'Please enter both names to continue.';
+    return;
+  }
+  if (!/[a-zA-Z]/.test(n1) || !/[a-zA-Z]/.test(n2)){
+    errorMsg.textContent = 'Names should contain at least one letter.';
+    return;
+  }
+
+  startBtn.disabled = true;
+  switchView(homeView, loadingView);
+
+  const analysisPromise = runAnalysis(n1, n2);
+  const animationPromise = playLoadingAnimation();
+
+  const [analysis] = await Promise.all([analysisPromise, animationPromise]);
+
+  renderResults(analysis);
+  switchView(loadingView, resultsView);
+  startBtn.disabled = false;
+});
+
+document.getElementById('restart-btn').addEventListener('click', function(){
+  name1Input.value = '';
+  name2Input.value = '';
+  name1Input.dispatchEvent(new Event('input'));
+  name2Input.dispatchEvent(new Event('input'));
+  switchView(resultsView, homeView);
+});
+
+document.getElementById('share-btn').addEventListener('click', function(){
+  const text = document.getElementById('res-name1').textContent + ' + ' +
+               document.getElementById('res-name2').textContent + ' = ' +
+               document.getElementById('res-badge').textContent.trim() +
+               ' (' + document.getElementById('gauge-value').textContent + ' compatibility) — Flame Match Analyzer';
+  navigator.clipboard && navigator.clipboard.writeText(text);
+  const btn = document.getElementById('share-btn');
+  const original = btn.textContent;
+  btn.textContent = '✅ Copied!';
+  setTimeout(() => btn.textContent = original, 1600);
+});
+
+function switchView(from, to){
+  from.classList.add('hidden');
+  to.classList.remove('hidden');
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Loading animation: circular progress, typing text, floating particles.
+ *    Runs for a random-but-bounded 5.5–7.5s window (per spec: 5–8s total).
+ * -------------------------------------------------------------------------*/
+function playLoadingAnimation(){
+  return new Promise((resolve) => {
+    const totalMs = 5500 + Math.floor(Math.random() * 2000); // 5.5s - 7.5s
+    const ring = document.getElementById('loading-ring-progress');
+    const percentLabel = document.getElementById('loading-percent');
+    const circumference = 2 * Math.PI * 95;
+    ring.style.strokeDasharray = circumference;
+    ring.style.strokeDashoffset = circumference;
+
+    const phrases = [
+      'Analyzing personalities...',
+      'Checking compatibility...',
+      'Calculating FLAMES...',
+      'Finding relationship prediction...'
+    ];
+    typeCycle(phrases, totalMs);
+
+    const particleTimer = setInterval(spawnParticle, 220);
+    for (let i=0;i<6;i++) setTimeout(spawnParticle, i*90);
+
+    const start = performance.now();
+    function tick(now){
+      const elapsed = now - start;
+      const pct = Math.min(1, elapsed / totalMs);
+      const eased = 1 - Math.pow(1 - pct, 2); // ease-out
+      ring.style.strokeDashoffset = circumference * (1 - eased);
+      percentLabel.textContent = Math.round(eased * 100) + '%';
+      if (pct < 1){
+        requestAnimationFrame(tick);
+      } else {
+        clearInterval(particleTimer);
+        resolve();
+      }
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+function typeCycle(phrases, totalMs){
+  const el = document.getElementById('loading-text');
+  const perPhrase = totalMs / phrases.length;
+  let phraseIndex = 0;
+
+  function typePhrase(text, onDone){
+    let i = 0;
+    el.innerHTML = '';
+    const textSpan = document.createElement('span');
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    el.appendChild(textSpan);
+    el.appendChild(cursor);
+    const typeSpeed = Math.max(18, (perPhrase * 0.55) / text.length);
+    const interval = setInterval(() => {
+      textSpan.textContent = text.slice(0, ++i);
+      if (i >= text.length){
+        clearInterval(interval);
+        setTimeout(onDone, perPhrase * 0.35);
+      }
+    }, typeSpeed);
+  }
+
+  function next(){
+    if (phraseIndex >= phrases.length) return;
+    typePhrase(phrases[phraseIndex], () => {
+      phraseIndex++;
+      if (phraseIndex < phrases.length) next();
+    });
+  }
+  next();
+}
+
+const FIRE_EMOJI = ['🔥','✨','💫'];
+const HEART_EMOJI = ['❤️','💖','💕','💘'];
+function spawnParticle(){
+  const field = document.getElementById('particle-field');
+  if (!field || loadingView.classList.contains('hidden')) return;
+  const el = document.createElement('div');
+  el.className = 'particle';
+  const isFire = Math.random() > 0.45;
+  const set = isFire ? FIRE_EMOJI : HEART_EMOJI;
+  el.textContent = set[Math.floor(Math.random()*set.length)];
+  const left = Math.random()*100;
+  const duration = 3.2 + Math.random()*2.4;
+  const drift = (Math.random()*140 - 70) + 'px';
+  el.style.left = left + '%';
+  el.style.fontSize = (16 + Math.random()*18) + 'px';
+  el.style.setProperty('--drift', drift);
+  el.style.animationDuration = duration + 's';
+  field.appendChild(el);
+  setTimeout(() => el.remove(), duration*1000 + 200);
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Results rendering
+ * -------------------------------------------------------------------------*/
+let chartRadar, chartDoughnut, chartRing, chartBar;
+
+function renderResults(analysis){
+  document.getElementById('res-name1').textContent = analysis.name1;
+  document.getElementById('res-name2').textContent = analysis.name2;
+  document.getElementById('res-badge').textContent = analysis.resultLabel;
+
+  animateGauge(analysis.metrics.compatibility);
+  renderDashboard(analysis.metrics);
+  renderCharts(analysis.metrics);
+  renderTimeline();
+
+  if (analysis.metrics.compatibility >= 70){
+    setTimeout(fireConfetti, 500);
+  }
+  spawnResultHearts();
+}
+
+function animateGauge(value){
+  const ring = document.getElementById('gauge-progress');
+  const valueLabel = document.getElementById('gauge-value');
+  const circumference = 2 * Math.PI * 95;
+  ring.style.strokeDasharray = circumference;
+  ring.style.strokeDashoffset = circumference;
+  requestAnimationFrame(() => {
+    ring.style.strokeDashoffset = circumference * (1 - value/100);
+  });
+  animateCount(valueLabel, 0, value, 1500, (v) => Math.round(v) + '%');
+}
+
+function animateCount(el, from, to, duration, formatter){
+  const start = performance.now();
+  function tick(now){
+    const pct = Math.min(1, (now-start)/duration);
+    const eased = 1 - Math.pow(1-pct, 3);
+    const current = from + (to-from)*eased;
+    el.textContent = formatter ? formatter(current) : Math.round(current);
+    if (pct < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+const DASHBOARD_CARDS = [
+  { key:'compatibility',  icon:'❤️', name:'Compatibility Score' },
+  { key:'passion',        icon:'🔥', name:'Passion Level' },
+  { key:'friendship',     icon:'😊', name:'Friendship Score' },
+  { key:'marriageChance', icon:'💍', name:'Marriage Chance' },
+  { key:'communication',  icon:'💬', name:'Communication' },
+  { key:'overall',        icon:'⭐', name:'Overall Rating' }
+];
+
+function renderDashboard(metrics){
+  const grid = document.getElementById('dashboard-grid');
+  grid.innerHTML = '';
+  DASHBOARD_CARDS.forEach((card, i) => {
+    const value = metrics[card.key];
+    const el = document.createElement('div');
+    el.className = 'glass-card stat-card';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(14px)';
+    el.style.transition = 'opacity .5s ease, transform .5s ease';
+    el.innerHTML =
+      '<div class="stat-top"><span class="stat-icon">'+card.icon+'</span><span class="stat-name">'+card.name+'</span></div>' +
+      '<div class="stat-value" data-key="'+card.key+'">0%</div>' +
+      '<div class="stat-bar"><div class="stat-bar-fill" data-fill="'+card.key+'"></div></div>';
+    grid.appendChild(el);
+
+    setTimeout(() => {
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0)';
+      const valueEl = el.querySelector('[data-key="'+card.key+'"]');
+      const fillEl = el.querySelector('[data-fill="'+card.key+'"]');
+      animateCount(valueEl, 0, value, 1200, (v) => Math.round(v) + '%');
+      requestAnimationFrame(() => fillEl.style.width = value + '%');
+    }, i * 110);
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Charts (Chart.js)
+ * -------------------------------------------------------------------------*/
+function chartTheme(){
+  return {
+    text: getComputedStyle(document.body).getPropertyValue('--text-2').trim() || '#a6a1af',
+    grid: 'rgba(255,255,255,.08)'
+  };
+}
+
+function renderCharts(metrics){
+  const theme = chartTheme();
+  const labels = ['Compatibility','Passion','Friendship','Marriage','Communication'];
+  const values = [metrics.compatibility, metrics.passion, metrics.friendship, metrics.marriageChance, metrics.communication];
+  const gradientColors = ['#ff7a3d','#ff3d68','#9b5cf6','#ff3d68','#ff7a3d'];
+
+  if (chartRadar) chartRadar.destroy();
+  if (chartDoughnut) chartDoughnut.destroy();
+  if (chartRing) chartRing.destroy();
+  if (chartBar) chartBar.destroy();
+
+  chartRadar = new Chart(document.getElementById('chart-radar'), {
+    type: 'radar',
+    data: { labels, datasets: [{
+      label: 'Score', data: values,
+      backgroundColor: 'rgba(255,61,104,.18)',
+      borderColor: '#ff3d68', borderWidth: 2,
+      pointBackgroundColor: '#ff7a3d', pointBorderColor: '#fff', pointRadius: 3
+    }]},
+    options: {
+      responsive:true, animation:{ duration:1400, easing:'easeOutQuart' },
+      plugins:{ legend:{ display:false } },
+      scales:{ r:{ angleLines:{ color: theme.grid }, grid:{ color: theme.grid },
+        pointLabels:{ color: theme.text, font:{ size:11 } },
+        ticks:{ display:false, backdropColor:'transparent' }, suggestedMin:0, suggestedMax:100 } }
+    }
+  });
+
+  chartDoughnut = new Chart(document.getElementById('chart-doughnut'), {
+    type:'doughnut',
+    data:{ labels, datasets:[{ data: values, backgroundColor: gradientColors, borderWidth:0, hoverOffset:8 }] },
+    options:{
+      responsive:true, animation:{ duration:1400, easing:'easeOutQuart' },
+      plugins:{ legend:{ position:'bottom', labels:{ color: theme.text, boxWidth:10, font:{ size:10 } } } },
+      cutout:'62%'
+    }
+  });
+
+  chartRing = new Chart(document.getElementById('chart-progressring'), {
+    type:'doughnut',
+    data:{ labels:['Overall','Remaining'], datasets:[{
+      data:[metrics.overall, 100-metrics.overall],
+      backgroundColor:['#ff3d68', 'rgba(255,255,255,.06)'],
+      borderWidth:0
+    }]},
+    options:{
+      responsive:true, cutout:'78%', rotation:-90, circumference:360,
+      animation:{ duration:1400, easing:'easeOutQuart' },
+      plugins:{ legend:{ display:false }, tooltip:{ enabled:false } }
+    },
+    plugins:[{
+      id:'ringCenterText',
+      afterDraw(chart){
+        const {ctx, chartArea:{width, height, top, left}} = chart;
+        ctx.save();
+        ctx.font = '700 26px JetBrains Mono, monospace';
+        ctx.fillStyle = '#f4f1ee';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(metrics.overall + '%', left + width/2, top + height/2);
+        ctx.restore();
+      }
+    }]
+  });
+
+  chartBar = new Chart(document.getElementById('chart-bar'), {
+    type:'bar',
+    data:{ labels, datasets:[{ data: values, backgroundColor: gradientColors, borderRadius:8, maxBarThickness:34 }]},
+    options:{
+      responsive:true, animation:{ duration:1400, easing:'easeOutQuart' },
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ ticks:{ color: theme.text, font:{ size:10 } }, grid:{ display:false } },
+        y:{ min:0, max:100, ticks:{ color: theme.text }, grid:{ color: theme.grid } }
+      }
+    }
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Timeline
+ * -------------------------------------------------------------------------*/
+const TIMELINE_STEPS = [
+  { name:'Meeting', icon:'👋' },
+  { name:'Friendship', icon:'🤝' },
+  { name:'Trust', icon:'🤍' },
+  { name:'Love', icon:'❤️' },
+  { name:'Future', icon:'🌟' }
+];
+function renderTimeline(){
+  const wrap = document.getElementById('timeline');
+  wrap.innerHTML = '';
+  TIMELINE_STEPS.forEach((step) => {
+    const el = document.createElement('div');
+    el.className = 'timeline-step';
+    el.innerHTML = '<div class="timeline-icon">'+step.icon+'</div><div class="timeline-name">'+step.name+'</div>';
+    wrap.appendChild(el);
+  });
+  const steps = wrap.querySelectorAll('.timeline-step');
+  steps.forEach((el, i) => setTimeout(() => el.classList.add('show'), 250 + i*220));
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. Confetti + floating hearts (canvas-based effects)
+ * -------------------------------------------------------------------------*/
+const fxCanvas = document.getElementById('fx-canvas');
+const fxCtx = fxCanvas.getContext('2d');
+function resizeFxCanvas(){ fxCanvas.width = innerWidth; fxCanvas.height = innerHeight; }
+resizeFxCanvas();
+window.addEventListener('resize', resizeFxCanvas);
+
+function fireConfetti(){
+  const colors = ['#ff7a3d','#ff3d68','#9b5cf6','#facc15','#4ade80'];
+  const pieces = Array.from({length:140}, () => ({
+    x: Math.random()*fxCanvas.width,
+    y: -20 - Math.random()*fxCanvas.height*0.3,
+    w: 6 + Math.random()*6,
+    h: 8 + Math.random()*10,
+    color: colors[Math.floor(Math.random()*colors.length)],
+    speedY: 2 + Math.random()*3,
+    speedX: (Math.random()-0.5)*2,
+    rotation: Math.random()*360,
+    rotationSpeed: (Math.random()-0.5)*10
+  }));
+  const duration = 3200;
+  const start = performance.now();
+  function frame(now){
+    const elapsed = now - start;
+    fxCtx.clearRect(0,0,fxCanvas.width, fxCanvas.height);
+    pieces.forEach(p => {
+      p.x += p.speedX; p.y += p.speedY; p.rotation += p.rotationSpeed;
+      fxCtx.save();
+      fxCtx.translate(p.x, p.y);
+      fxCtx.rotate(p.rotation * Math.PI/180);
+      fxCtx.fillStyle = p.color;
+      fxCtx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      fxCtx.restore();
+    });
+    if (elapsed < duration){
+      requestAnimationFrame(frame);
+    } else {
+      fxCtx.clearRect(0,0,fxCanvas.width, fxCanvas.height);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+function spawnResultHearts(){
+  let count = 0;
+  const interval = setInterval(() => {
+    const el = document.createElement('div');
+    el.textContent = HEART_EMOJI[Math.floor(Math.random()*HEART_EMOJI.length)];
+    el.style.position = 'fixed';
+    el.style.left = (10 + Math.random()*80) + 'vw';
+    el.style.bottom = '-40px';
+    el.style.fontSize = (18 + Math.random()*16) + 'px';
+    el.style.zIndex = 45;
+    el.style.pointerEvents = 'none';
+    el.style.transition = 'transform 3.4s ease-out, opacity 3.4s ease-out';
+    document.body.appendChild(el);
+    requestAnimationFrame(() => {
+      el.style.transform = 'translateY(-70vh) translateX(' + ((Math.random()-0.5)*120) + 'px)';
+      el.style.opacity = '0';
+    });
+    setTimeout(() => el.remove(), 3600);
+    count++;
+    if (count > 16) clearInterval(interval);
+  }, 160);
+}
+</script>
+</body>
+</html>
