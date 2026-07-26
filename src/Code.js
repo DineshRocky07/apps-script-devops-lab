@@ -9,7 +9,7 @@
  */
 
 /**
- * Web app entry point. Renders Index.html.
+ * Web app entry point. Renders Index.html.dd
  */
 function doGet() {
   return HtmlService.createHtmlOutput(HtmlService.createTemplateFromFile('Index').evaluate())
