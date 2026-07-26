@@ -13,7 +13,7 @@
  */
 function doGet() {
   return HtmlService.createHtmlOutput(HtmlService.createTemplateFromFile('Index').evaluate())
-    .setTitle('🔥 Flame MaTch dinesh Analyzer')
+    .setTitle('🔥 Flame MaTch dinesh Analyzer ')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -21,7 +21,7 @@ function doGet() {
 /**
  * Utility used by Index.html if it ever needs to inline another HTML
  * partial. Not required for the current single-file build, kept for
- * extensibility.
+ * extensibility. gg
  */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
