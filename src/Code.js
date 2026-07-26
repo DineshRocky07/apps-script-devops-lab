@@ -13,7 +13,7 @@
  */
 function doGet() {
   return HtmlService.createHtmlOutput(HtmlService.createTemplateFromFile('Index').evaluate())
-    .setTitle('🔥 Flame MaTch Analyzer')
+    .setTitle('🔥 Flame MaTch dinesh Analyzer')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
