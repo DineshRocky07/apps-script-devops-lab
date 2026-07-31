@@ -9,11 +9,15 @@
  */
 
 /**
- * Web app entry point. Renders Index.html.dddfkjv
+ * Web app entry point. Renders Index.html.
  */
-function doGet() {
+function doGet(e) {
+  if (isHealthCheck(e)) {
+    return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
+  }
+
   return HtmlService.createHtmlOutput(HtmlService.createTemplateFromFile('Index').evaluate())
-    .setTitle('🔥 Flame MaTch dinesh Analyzer ')
+    .setTitle('🔥 Flame Match Analyzer')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -21,7 +25,7 @@ function doGet() {
 /**
  * Utility used by Index.html if it ever needs to inline another HTML
  * partial. Not required for the current single-file build, kept for
- * extensibility. ggdgs
+ * extensibility.
  */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
@@ -40,27 +44,49 @@ function include(filename) {
  * @return {Object} analysis payload
  */
 function getAnalysis(rawName1, rawName2) {
-  var name1 = String(rawName1 || '').trim();
-  var name2 = String(rawName2 || '').trim();
+  console.log('getAnalysis called', { name1: rawName1, name2: rawName2 });
 
-  if (!name1 || !name2) {
-    throw new Error('Both names are required.');
+  try {
+    var name1 = String(rawName1 || '').trim();
+    var name2 = String(rawName2 || '').trim();
+
+    if (!name1 || !name2) {
+      throw new Error('Both names are required.');
+    }
+
+    var flames = computeFlames(name1, name2);
+    var seed = hashNames(name1, name2);
+    var metrics = computeDashboardMetrics(flames, seed);
+    var content = CONTENT_LIBRARY[flames.result] || null;
+
+    return {
+      name1: name1,
+      name2: name2,
+      remainingCount: flames.remainingCount,
+      result: flames.result, // e.g. "Love"
+      resultEmoji: flames.emoji, // e.g. "❤️"
+      resultLabel: flames.label, // e.g. "Love ❤️"
+      eliminationTrail: flames.trail, // array of {letter, word} eliminated in order
+      metrics: metrics,
+      content: content // headline, tagline, loveNote, tips[], dateIdeas[], colorTheme
+    };
+  } catch (err) {
+    // Logged via console.error so it lands in Cloud Logging (see
+    // "exceptionLogging": "STACKDRIVER" in appsscript.json and
+    // docs/MONITORING.md). Re-thrown so the client's withFailureHandler
+    // still fires and can fall back to local computation.
+    console.error('getAnalysis failed', err.message);
+    throw err;
   }
+}
 
-  var flames = computeFlames(name1, name2);
-  var seed = hashNames(name1, name2);
-  var metrics = computeDashboardMetrics(flames, seed);
-
-  return {
-    name1: name1,
-    name2: name2,
-    remainingCount: flames.remainingCount,
-    result: flames.result,          // e.g. "Love"
-    resultEmoji: flames.emoji,       // e.g. "❤️"
-    resultLabel: flames.label,       // e.g. "Love ❤️"
-    eliminationTrail: flames.trail,  // array of {letter, word} eliminated in order
-    metrics: metrics
-  };
+/**
+ * Lightweight health check so uptime monitors (see docs/MONITORING.md)
+ * can verify the deployment is alive without rendering the full UI:
+ * GET .../exec?health=1
+ */
+function isHealthCheck(e) {
+  return !!(e && e.parameter && e.parameter.health === '1');
 }
 
 /* ============================================================================
@@ -68,12 +94,12 @@ function getAnalysis(rawName1, rawName2) {
  * ==========================================================================*/
 
 var FLAMES_TABLE = [
-  { letter: 'F', word: 'Friends',   emoji: '🤝' },
-  { letter: 'L', word: 'Love',      emoji: '❤️' },
+  { letter: 'F', word: 'Friends', emoji: '🤝' },
+  { letter: 'L', word: 'Love', emoji: '❤️' },
   { letter: 'A', word: 'Affection', emoji: '🥰' },
-  { letter: 'M', word: 'Marriage',  emoji: '💍' },
-  { letter: 'E', word: 'Enemy',     emoji: '⚔️' },
-  { letter: 'S', word: 'Siblings',  emoji: '👨‍👩‍👧' }
+  { letter: 'M', word: 'Marriage', emoji: '💍' },
+  { letter: 'E', word: 'Enemy', emoji: '⚔️' },
+  { letter: 'S', word: 'Siblings', emoji: '👨‍👩‍👧' }
 ];
 
 /**
@@ -143,12 +169,12 @@ function normalizeToLetters(name) {
 // Baseline "feel" per FLAMES outcome — keeps the numbers thematically honest
 // (e.g. "Enemy" shouldn't roll a 95% compatibility score).
 var RESULT_BASELINES = {
-  Friends:   { compatibility: 58, passion: 30, friendship: 88, marriage: 25, communication: 62 },
-  Love:      { compatibility: 82, passion: 85, friendship: 70, marriage: 68, communication: 74 },
+  Friends: { compatibility: 58, passion: 30, friendship: 88, marriage: 25, communication: 62 },
+  Love: { compatibility: 82, passion: 85, friendship: 70, marriage: 68, communication: 74 },
   Affection: { compatibility: 70, passion: 60, friendship: 75, marriage: 50, communication: 68 },
-  Marriage:  { compatibility: 88, passion: 72, friendship: 74, marriage: 92, communication: 80 },
-  Enemy:     { compatibility: 22, passion: 20, friendship: 15, marriage: 8,  communication: 25 },
-  Siblings:  { compatibility: 60, passion: 15, friendship: 82, marriage: 12, communication: 70 }
+  Marriage: { compatibility: 88, passion: 72, friendship: 74, marriage: 92, communication: 80 },
+  Enemy: { compatibility: 22, passion: 20, friendship: 15, marriage: 8, communication: 25 },
+  Siblings: { compatibility: 60, passion: 15, friendship: 82, marriage: 12, communication: 70 }
 };
 
 /**
@@ -169,7 +195,7 @@ function mulberry32(seed) {
   var state = seed;
   return function () {
     state |= 0;
-    state = (state + 0x6D2B79F5) | 0;
+    state = (state + 0x6d2b79f5) | 0;
     var t = Math.imul(state ^ (state >>> 15), 1 | state);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -178,6 +204,21 @@ function mulberry32(seed) {
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// ---------------------------------------------------------------------------
+// Testability hook: Apps Script has no `module` global, so this branch never
+// runs in production — it only fires under Node (see tests/flames.test.js),
+// letting us unit test the pure logic above without mocking Apps Script
+// services like HtmlService.
+// ---------------------------------------------------------------------------
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    computeFlames: computeFlames,
+    hashNames: hashNames,
+    normalizeToLetters: normalizeToLetters,
+    computeDashboardMetrics: computeDashboardMetrics
+  };
 }
 
 function computeDashboardMetrics(flames, seed) {
@@ -193,11 +234,13 @@ function computeDashboardMetrics(flames, seed) {
   }
 
   var compatibility = nudge(base.compatibility, 10);
-  var passion        = nudge(base.passion, 14);
-  var friendship      = nudge(base.friendship, 12);
-  var marriageChance  = nudge(base.marriage, 12);
-  var communication    = nudge(base.communication, 12);
-  var overall = Math.round((compatibility + passion + friendship + marriageChance + communication) / 5);
+  var passion = nudge(base.passion, 14);
+  var friendship = nudge(base.friendship, 12);
+  var marriageChance = nudge(base.marriage, 12);
+  var communication = nudge(base.communication, 12);
+  var overall = Math.round(
+    (compatibility + passion + friendship + marriageChance + communication) / 5
+  );
 
   return {
     compatibility: compatibility,
